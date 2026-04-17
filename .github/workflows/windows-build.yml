@@ -57,15 +57,24 @@ jobs:
       - name: Build installers and packages
         run: msbuild Wox.Installer\Wox.Installer.wixproj /m /p:Configuration=Release /p:Platform=x64 /p:BuildProjectReferences=false /t:Build
 
-      - name: Upload workflow artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: wox-${{ steps.meta.outputs.safe_branch }}-${{ steps.meta.outputs.short_sha }}
-          path: |
-            Output/Packages/**
-            Wox.Installer/Everything*.exe
-            Wox.Installer/python*.exe
-          if-no-files-found: error
+      - name: Build portable self-extracting package
+        shell: pwsh
+        run: |
+          $version = "${{ steps.meta.outputs.build_version }}"
+          $portableExe = Join-Path (Resolve-Path 'Output\Packages') "Wox-$version-portable.exe"
+
+          if (Test-Path $portableExe) {
+            Remove-Item $portableExe -Force
+          }
+
+          Push-Location (Resolve-Path 'Output\Release')
+          try {
+            7z a -mx=9 -sfx $portableExe .\*
+          } finally {
+            Pop-Location
+          }
+
+          Get-Item $portableExe | Format-List FullName, Length, LastWriteTime
 
       - name: Publish draft release
         uses: softprops/action-gh-release@v3
@@ -81,8 +90,5 @@ jobs:
             Commit: `${{ github.sha }}`
             Build version: `${{ steps.meta.outputs.build_version }}`
             Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          files: |
-            Output/Packages/**
-            Wox.Installer/Everything*.exe
-            Wox.Installer/python*.exe
+          files: Output/Packages/Wox-*-portable.exe
           fail_on_unmatched_files: true
