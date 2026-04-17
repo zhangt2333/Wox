@@ -1,0 +1,88 @@
+name: Windows Build
+
+on:
+  push:
+    branches:
+      - 'master'
+  workflow_dispatch:
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-2022
+    env:
+      APPVEYOR: True
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v3
+
+      - name: Setup NuGet
+        uses: NuGet/setup-nuget@v4
+
+      - name: Compute build metadata
+        id: meta
+        shell: pwsh
+        run: |
+          $branch = "${{ github.ref_name }}"
+          $safeBranch = $branch -replace '[^0-9A-Za-z._-]', '-'
+          $shortSha = "${{ github.sha }}".Substring(0, 7)
+          $buildVersion = "1.5.${{ github.run_number }}"
+          $releaseTag = "draft-$safeBranch-${{ github.run_number }}"
+          $releaseName = "Draft $branch #${{ github.run_number }}"
+
+          "safe_branch=$safeBranch" >> $env:GITHUB_OUTPUT
+          "short_sha=$shortSha" >> $env:GITHUB_OUTPUT
+          "build_version=$buildVersion" >> $env:GITHUB_OUTPUT
+          "release_tag=$releaseTag" >> $env:GITHUB_OUTPUT
+          "release_name=$releaseName" >> $env:GITHUB_OUTPUT
+          "GITHUB_BUILD_VERSION=$buildVersion" >> $env:GITHUB_ENV
+          "APPVEYOR_BUILD_VERSION=$buildVersion" >> $env:GITHUB_ENV
+
+      - name: Restore packages
+        run: nuget restore Wox.sln
+
+      - name: Build solution
+        run: msbuild Wox.sln /m /p:Configuration=Release
+
+      - name: Build installers and packages
+        run: msbuild Wox.Installer\Wox.Installer.wixproj /m /p:Configuration=Release /p:Platform=x64 /p:BuildProjectReferences=false /t:Build
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: wox-${{ steps.meta.outputs.safe_branch }}-${{ steps.meta.outputs.short_sha }}
+          path: |
+            Output/Packages/**
+            Wox.Installer/Everything*.exe
+            Wox.Installer/python*.exe
+          if-no-files-found: error
+
+      - name: Publish draft release
+        uses: softprops/action-gh-release@v3
+        with:
+          draft: true
+          prerelease: true
+          tag_name: ${{ steps.meta.outputs.release_tag }}
+          name: ${{ steps.meta.outputs.release_name }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            Automated draft build for `${{ github.ref_name }}`.
+
+            Commit: `${{ github.sha }}`
+            Build version: `${{ steps.meta.outputs.build_version }}`
+            Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          files: |
+            Output/Packages/**
+            Wox.Installer/Everything*.exe
+            Wox.Installer/python*.exe
+          fail_on_unmatched_files: true
