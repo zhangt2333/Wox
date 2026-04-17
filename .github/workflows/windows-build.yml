@@ -57,25 +57,6 @@ jobs:
       - name: Build installers and packages
         run: msbuild Wox.Installer\Wox.Installer.wixproj /m /p:Configuration=Release /p:Platform=x64 /p:BuildProjectReferences=false /t:Build
 
-      - name: Build portable self-extracting package
-        shell: pwsh
-        run: |
-          $version = "${{ steps.meta.outputs.build_version }}"
-          $portableExe = Join-Path (Resolve-Path 'Output\Packages') "Wox-$version-portable.exe"
-
-          if (Test-Path $portableExe) {
-            Remove-Item $portableExe -Force
-          }
-
-          Push-Location (Resolve-Path 'Output\Release')
-          try {
-            7z a -mx=9 -sfx $portableExe .\*
-          } finally {
-            Pop-Location
-          }
-
-          Get-Item $portableExe | Format-List FullName, Length, LastWriteTime
-
       - name: Publish draft release
         uses: softprops/action-gh-release@v3
         with:
@@ -90,5 +71,5 @@ jobs:
             Commit: `${{ github.sha }}`
             Build version: `${{ steps.meta.outputs.build_version }}`
             Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          files: Output/Packages/Wox-*-portable.exe
+          files: Output/Packages/Wox-*.zip
           fail_on_unmatched_files: true
